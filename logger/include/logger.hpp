@@ -1,9 +1,14 @@
-#pragma once
+#ifndef LOGGER
+#define LOGGER
 
-#include <chrono>
+#include <cstddef>
+#include <ctime>
+#include <fstream>
 #include <string_view>
 
 namespace logger {
+
+inline constexpr std::size_t max_socket_message_size = 1024 * 1024;
 
 enum class ImportanceLevel {
     info,
@@ -15,46 +20,69 @@ constexpr std::string_view to_string(ImportanceLevel level) {
     switch (level) {
         case ImportanceLevel::info:
             return "INFO";
-            break;
         case ImportanceLevel::warning:
             return "WARNING";
-            break;
         case ImportanceLevel::error:
             return "ERROR";
-            break;
-    };
+    }
 
-    return "Unknown";
+    return "UNKNOWN";
 }
-
-struct JournalField {
-    JournalField(std::string_view message_text, ImportanceLevel importance_level)
-        : message_text{message_text}, importance_level{importance_level} {
-        time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    };
-
-    std::string_view message_text;
-    ImportanceLevel importance_level;
-    std::time_t time;
-};
 
 class Logger {
    public:
-    Logger(std::string_view journal_file_name, ImportanceLevel default_level)
-        : journal_file_name{journal_file_name}, default_level{default_level} {};
-    ~Logger() {};
+    virtual ~Logger() = default;
+
+    bool write(std::string_view message);
+    bool write(std::string_view message, ImportanceLevel level);
+
+    void set_default_level(ImportanceLevel level) { default_level_ = level; }
+    ImportanceLevel default_level() const { return default_level_; }
+
+    virtual bool ready_to_write() const = 0;
+
+   protected:
+    explicit Logger(ImportanceLevel default_level) : default_level_{default_level} {}
+    virtual bool write_record(std::string_view message, ImportanceLevel level,
+                              std::time_t received_at) = 0;
 
    private:
-    const std::string_view journal_file_name;
-    ImportanceLevel default_level;
+    ImportanceLevel default_level_;
+};
 
+class FileLogger final : public Logger {
    public:
-    void change_default_importance_level(ImportanceLevel new_default_level);
+    FileLogger(std::string_view journal_file_name, ImportanceLevel default_level);
 
-    void write_to_journal(JournalField field);
+    bool ready_to_write() const override;
 
-   public:  // Геттеры
-    ImportanceLevel get_default_importance_level() { return default_level; }
+   private:
+    bool write_record(std::string_view message, ImportanceLevel level,
+                      std::time_t received_at) override;
+
+    std::string_view journal_file_name_;
+    std::ofstream journal_file_;
+};
+
+// Запись в сокет реализована как отдельная вариация логера, а не как
+// дополнительный/опциональный функционал "основного" логера
+class SocketLogger final : public Logger {
+   public:
+    SocketLogger(std::string_view host, std::string_view port, ImportanceLevel default_level);
+    ~SocketLogger() override;
+
+    SocketLogger(const SocketLogger&) = delete;
+    SocketLogger& operator=(const SocketLogger&) = delete;
+
+    bool ready_to_write() const override;
+
+   private:
+    bool write_record(std::string_view message, ImportanceLevel level,
+                      std::time_t received_at) override;
+
+    int socket_ = -1;
 };
 
 }  // namespace logger
+
+#endif

@@ -11,7 +11,6 @@ include(CTest)
 
 add_subdirectory(logger)
 add_subdirectory(app)
+add_subdirectory(collector)
 
-if(BUILD_TESTING)
-  add_subdirectory(tests)
-endif()
+add_subdirectory(tests)
